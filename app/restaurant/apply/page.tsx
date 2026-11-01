@@ -7,7 +7,6 @@ import { useRouter } from 'next/navigation';
 export default function RestaurantApplyPage() {
   const [businessName, setBusinessName] = useState('');
   const [loading, setLoading] = useState(false);
-  const [user, setUser] = useState<any>(null);
   const [status, setStatus] = useState<string>('none');
   const router = useRouter();
 
@@ -18,7 +17,6 @@ export default function RestaurantApplyPage() {
         router.push('/login');
         return;
       }
-      setUser(session.user);
 
       // Check if they already applied or are a restaurant
       const { data: profile } = await supabase
@@ -43,6 +41,14 @@ export default function RestaurantApplyPage() {
     e.preventDefault();
     setLoading(true);
 
+    // Fetch session directly to guarantee user id is present
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      alert('You must be logged in to submit an application.');
+      router.push('/login');
+      return;
+    }
+
     const { error } = await supabase
       .from('profiles')
       .update({
@@ -51,9 +57,10 @@ export default function RestaurantApplyPage() {
         application_status: 'pending',
         is_verified: false,
       })
-      .eq('id', user.id);
+      .eq('id', session.user.id);
 
     if (error) {
+      console.error("Supabase update error details:", error);
       alert('Error submitting application: ' + error.message);
       setLoading(false);
       return;
