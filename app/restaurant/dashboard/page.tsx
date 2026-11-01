@@ -16,7 +16,7 @@ function formatPickupWindow(startIso?: string, endIso?: string) {
   });
   const startTime = start.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   const endTime = end.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-  return `${dateStr} • From ${startTime} to ${endTime}`;
+  return `${dateStr} From ${startTime} to ${endTime}`;
 }
 
 export default function RestaurantDashboard() {
@@ -63,19 +63,22 @@ export default function RestaurantDashboard() {
       const todayStr = new Date().toISOString().split('T')[0];
       setPickupDate(todayStr);
 
-      // 1. Fetch restaurant profile
-      const { data: profileData } = await supabase
+      // 1. Fetch restaurant profile and strictly verify role
+      const { data: profileData, error: profileError } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', uid)
         .single();
 
-      if (profileData) {
-        setProfile(profileData);
-        setBusinessName(profileData.business_name || '');
-        setAddress(profileData.address || '');
-        setPhone(profileData.phone || '');
+      if (profileError || !profileData || profileData.role !== 'restaurant') {
+        router.push('/restaurant/apply');
+        return;
       }
+
+      setProfile(profileData);
+      setBusinessName(profileData.business_name || '');
+      setAddress(profileData.address || '');
+      setPhone(profileData.phone || '');
 
       // 2. Fetch restaurant's listings
       const { data: listingsData, error: listingsError } = await supabase
@@ -552,7 +555,7 @@ export default function RestaurantDashboard() {
                       )}
                       <p className="text-xs text-gray-500">
                         Price: <strong className="text-emerald-600">€{Number(item.discounted_price).toFixed(2)}</strong>{' '}
-                        <span className="line-through text-gray-400">€{Number(item.original_price).toFixed(2)}</span> • Stock left: <strong>{item.quantity}</strong>
+                        <span className="line-through text-gray-400">€{Number(item.original_price).toFixed(2)}</span> | Stock left: <strong>{item.quantity}</strong>
                       </p>
                     </div>
                     <button
