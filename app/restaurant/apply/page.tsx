@@ -52,7 +52,6 @@ export default function RestaurantApplyPage() {
     const { error } = await supabase
       .from('profiles')
       .update({
-        role: 'restaurant',
         business_name: businessName,
         application_status: 'pending',
         is_verified: false,
