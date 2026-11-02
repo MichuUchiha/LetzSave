@@ -15,7 +15,7 @@ function formatPickupWindow(startIso?: string, endIso?: string) {
   });
   const startTime = start.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   const endTime = end.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-  return `${dateStr} • From ${startTime} to ${endTime}`;
+  return `${dateStr} From ${startTime} to ${endTime}`;
 }
 
 export default function FeedPage() {
@@ -81,7 +81,6 @@ export default function FeedPage() {
       return;
     }
 
-    // Force server verification of the current user
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       alert('Please log in to reserve food.');
