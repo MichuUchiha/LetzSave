@@ -53,6 +53,10 @@ export default function FeedPage() {
 
     initFeed();
 
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setCurrentUserEmail(session?.user?.email || null);
+    });
+
     const interval = setInterval(() => {
       const now = new Date();
       setListings((prev) =>
@@ -60,7 +64,10 @@ export default function FeedPage() {
       );
     }, 30000);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      subscription.unsubscribe();
+    };
   }, []);
 
   const handleQuantityChange = (id: string, qty: number, max: number) => {
@@ -118,21 +125,32 @@ export default function FeedPage() {
           <span className="text-xl font-extrabold text-emerald-600 tracking-tight">🌱 LetzSave</span>
           <nav className="flex items-center gap-4 text-sm font-medium">
             <a href="/" className="text-emerald-600 font-bold">Feed</a>
-            <a href="/orders" className="text-gray-600 hover:text-gray-900">My Orders</a>
-            <a href="/restaurant/apply" className="text-gray-600 hover:text-gray-900">Restaurant Partner</a>
-            {currentUserEmail && (
-              <span className="text-xs text-gray-400 hidden sm:inline">({currentUserEmail})</span>
+            
+            {currentUserEmail ? (
+              <>
+                <a href="/orders" className="text-gray-600 hover:text-gray-900">My Orders</a>
+                <a href="/restaurant/apply" className="text-gray-600 hover:text-gray-900">Restaurant Partner</a>
+                <span className="text-xs text-gray-400 hidden sm:inline">({currentUserEmail})</span>
+                <button
+                  onClick={async () => {
+                    await supabase.auth.signOut();
+                    localStorage.clear();
+                    setCurrentUserEmail(null);
+                    window.location.href = '/login';
+                  }}
+                  className="bg-gray-100 text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-200 transition text-xs"
+                >
+                  Log Out
+                </button>
+              </>
+            ) : (
+              <a
+                href="/login"
+                className="bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-semibold hover:bg-emerald-700 transition shadow-sm"
+              >
+                Log In
+              </a>
             )}
-            <button
-              onClick={async () => {
-                await supabase.auth.signOut();
-                localStorage.clear();
-                window.location.href = '/login';
-              }}
-              className="bg-gray-100 text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-200 transition text-xs"
-            >
-              Log Out
-            </button>
           </nav>
         </div>
       </header>
