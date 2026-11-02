@@ -2,6 +2,34 @@ import { NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe';
 import { supabase } from '@/lib/supabase';
 
+function getValidBaseUrl(req: Request): string {
+  const origin = req.headers.get('origin');
+  let raw =
+    origin ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    'https://www.letzsave.lu';
+
+  // Strip accidental quotes and whitespace from env vars
+  raw = raw.trim().replace(/^["']|["']$/g, '');
+
+  // Prepend protocol if missing
+  if (!raw.startsWith('http://') && !raw.startsWith('https://')) {
+    raw = raw.includes('localhost') ? `http://${raw}` : `https://${raw}`;
+  }
+
+  // Remove trailing slashes
+  raw = raw.replace(/\/+$/, '');
+
+  // Verify it is a valid URL; if not, hard-fallback to production URL
+  try {
+    new URL(raw);
+    return raw;
+  } catch {
+    return 'https://www.letzsave.lu';
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const { listingId, quantity, customerEmail } = await req.json();
@@ -41,17 +69,9 @@ export async function POST(req: Request) {
       connectedAccountId = profile?.stripe_account_id;
     }
 
-    // Bulletproof base URL derivation with fallbacks
-    const origin = req.headers.get('origin');
-    const rawBaseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || origin || 'https://letzsave.lu';
-    
-    // Ensure it's clean and doesn't end with a slash
-    const baseUrl = rawBaseUrl.endsWith('/') ? rawBaseUrl.slice(0, -1) : rawBaseUrl;
-
+    const baseUrl = getValidBaseUrl(req);
     const successUrl = `${baseUrl}/order/success?session_id={CHECKOUT_SESSION_ID}`;
     const cancelUrl = `${baseUrl}/`;
-
-    console.log("Stripe Checkout URLs generated:", { successUrl, cancelUrl });
 
     const unitAmount = Math.round(listing.discounted_price * 100);
     const totalAmount = unitAmount * parsedQuantity;
@@ -82,7 +102,7 @@ export async function POST(req: Request) {
       sessionPayload.customer_email = customerEmail.trim();
     }
 
-    if (connectedAccountId) {
+    if (connectedAccountId && connectedAccountId.startsWith('acct_')) {
       sessionPayload.payment_intent_data = {
         application_fee_amount: platformFee,
         transfer_data: {
