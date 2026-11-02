@@ -404,7 +404,8 @@ export default function RestaurantDashboard() {
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {/* Added items-end to align inputs perfectly */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 mb-1">Original Price (€)</label>
                   <input
