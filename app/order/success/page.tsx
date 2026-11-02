@@ -2,58 +2,41 @@
 
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useState, Suspense } from 'react';
-import { supabase } from '@/lib/supabase';
 
 function SuccessContent() {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get('session_id');
-  const [pickupCode, setPickupCode] = useState('Processing...');
-  const [loading, setLoading] = useState(true);
+  const [pickupCode, setPickupCode] = useState('Loading...');
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    let interval: NodeJS.Timeout;
-    let attempts = 0;
-    const maxAttempts = 15; // Poll for ~30 seconds max
+    if (!sessionId) {
+      setPickupCode('No Session');
+      return;
+    }
 
-    async function pollOrderCode() {
-      // 1. Try finding order by Stripe session ID first (most reliable)
-      let query = supabase.from('orders').select('pickup_code');
+    async function verifyAndFulfillOrder() {
+      try {
+        const res = await fetch('/api/checkout/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId }),
+        });
+        const data = await res.json();
 
-      if (sessionId) {
-        query = query.eq('stripe_session_id', sessionId);
-      } else {
-        const { data: { session } } = await supabase.auth.getSession();
-        const userEmail = session?.user?.email?.trim();
-        if (!userEmail) {
-          setPickupCode('Check My Orders');
-          setLoading(false);
-          return;
+        if (res.ok && data.pickupCode) {
+          setPickupCode(data.pickupCode);
+        } else {
+          setPickupCode('Error');
+          setErrorMsg(data.error || 'Could not verify order');
         }
-        query = query.ilike('customer_email', userEmail).order('created_at', { ascending: false }).limit(1);
-      }
-
-      // Use maybeSingle() to avoid throwing 406 error when record is not yet inserted
-      const { data, error } = await query.maybeSingle();
-
-      if (data?.pickup_code) {
-        setPickupCode(data.pickup_code);
-        setLoading(false);
-        clearInterval(interval);
-      } else {
-        attempts++;
-        if (attempts >= maxAttempts) {
-          setPickupCode('Check My Orders');
-          setLoading(false);
-          clearInterval(interval);
-        }
+      } catch (err: any) {
+        setPickupCode('Error');
+        setErrorMsg(err.message);
       }
     }
 
-    // Run immediately, then poll every 2 seconds until the webhook inserts the order
-    pollOrderCode();
-    interval = setInterval(pollOrderCode, 2000);
-
-    return () => clearInterval(interval);
+    verifyAndFulfillOrder();
   }, [sessionId]);
 
   return (
@@ -75,12 +58,11 @@ function SuccessContent() {
         <div className="bg-emerald-50 border border-emerald-200 p-6 rounded-xl mb-6">
           <p className="text-xs uppercase tracking-wider text-emerald-800 font-semibold">Your Pickup Code</p>
           <p className="text-4xl font-mono tracking-widest text-emerald-900 mt-2 font-extrabold">
-            {loading && pickupCode === 'Processing...' ? (
-              <span className="animate-pulse">Loading...</span>
-            ) : (
-              pickupCode
-            )}
+            {pickupCode}
           </p>
+          {errorMsg && (
+            <p className="text-xs text-red-600 mt-2 font-medium">{errorMsg}</p>
+          )}
         </div>
 
         <p className="text-xs text-gray-500 mb-6">
