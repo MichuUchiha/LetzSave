@@ -41,6 +41,10 @@ export async function POST(req: Request) {
       connectedAccountId = profile?.stripe_account_id;
     }
 
+    // Safely determine base URL to prevent "Not a valid URL" errors
+    const origin = req.headers.get('origin');
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || origin || 'https://letzsave.lu';
+
     const unitAmount = Math.round(listing.discounted_price * 100);
     const totalAmount = unitAmount * parsedQuantity;
     const platformFee = Math.round(totalAmount * 0.15);
@@ -57,8 +61,8 @@ export async function POST(req: Request) {
         },
       ],
       mode: 'payment',
-      success_url: `${process.env.NEXT_PUBLIC_APP_URL}/order/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/`,
+      success_url: `${baseUrl}/order/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${baseUrl}/`,
       metadata: {
         listingId,
         quantity: parsedQuantity.toString(),
