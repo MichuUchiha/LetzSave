@@ -41,9 +41,17 @@ export async function POST(req: Request) {
       connectedAccountId = profile?.stripe_account_id;
     }
 
-    // Safely determine base URL to prevent "Not a valid URL" errors
+    // Bulletproof base URL derivation with fallbacks
     const origin = req.headers.get('origin');
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || origin || 'https://letzsave.lu';
+    const rawBaseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || origin || 'https://letzsave.lu';
+    
+    // Ensure it's clean and doesn't end with a slash
+    const baseUrl = rawBaseUrl.endsWith('/') ? rawBaseUrl.slice(0, -1) : rawBaseUrl;
+
+    const successUrl = `${baseUrl}/order/success?session_id={CHECKOUT_SESSION_ID}`;
+    const cancelUrl = `${baseUrl}/`;
+
+    console.log("Stripe Checkout URLs generated:", { successUrl, cancelUrl });
 
     const unitAmount = Math.round(listing.discounted_price * 100);
     const totalAmount = unitAmount * parsedQuantity;
@@ -61,8 +69,8 @@ export async function POST(req: Request) {
         },
       ],
       mode: 'payment',
-      success_url: `${baseUrl}/order/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${baseUrl}/`,
+      success_url: successUrl,
+      cancel_url: cancelUrl,
       metadata: {
         listingId,
         quantity: parsedQuantity.toString(),
@@ -87,7 +95,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ url: session.url });
   } catch (error: any) {
-    console.error('Checkout error:', error.message);
+    console.error('Checkout error details:', error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
