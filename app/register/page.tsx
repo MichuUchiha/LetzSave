@@ -1,9 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { createClient } from '@supabase/supabase-js';
 import { useRouter } from 'next/navigation';
-
 import { supabase } from '@/lib/supabase';
 
 export default function RegisterPage() {
@@ -21,7 +19,6 @@ export default function RegisterPage() {
     });
 
     if (authError) {
-      // Check if the error is a rate limit or too many requests error
       if (authError.message.toLowerCase().includes('rate limit')) {
         alert('You put a wrong email, or too many registration attempts. Please wait a moment before trying again.');
       } else {
@@ -30,12 +27,22 @@ export default function RegisterPage() {
       return;
     }
 
-    if (!authData.session) {
-      alert('Registration successful! Please check your email inbox to verify your account before logging in.');
-      router.push('/login');
-      return;
+    // 1. Trigger welcome email if user was created
+    if (authData.user) {
+      try {
+        const res = await fetch('/api/auth/welcome', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+        });
+        const resData = await res.json();
+        console.log('Welcome email API response:', resData);
+      } catch (emailErr) {
+        console.error('Failed to trigger welcome email:', emailErr);
+      }
     }
 
+    // 2. Insert profile into database
     const userId = authData.user?.id;
     if (userId) {
       await supabase.from('profiles').insert({
@@ -47,8 +54,16 @@ export default function RegisterPage() {
       });
     }
 
+    // 3. Redirect
+    if (!authData.session) {
+      alert('Registration successful! Please check your email inbox to verify your account before logging in.');
+      router.push('/login');
+      return;
+    }
+
     router.push('/');
   };
+
   const handleGoogleLogin = async () => {
     await supabase.auth.signInWithOAuth({
       provider: 'google',
