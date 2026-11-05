@@ -152,7 +152,7 @@ export default function RestaurantDashboard() {
     }
   };
 
-  const handleCreateListing = async (e: React.FormEvent) => {
+ const handleCreateListing = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!userId) return;
 
@@ -190,32 +190,35 @@ export default function RestaurantDashboard() {
 
     setSubmitting(true);
 
-    const { data, error } = await supabase
-      .from('food_listings')
-      .insert({
-        restaurant_id: userId,
+    // Call the server API route to create the listing and trigger email alerts
+    const res = await fetch('/api/listings/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        restaurantId: userId,
         title,
-        original_price: orig,
-        discounted_price: disc,
+        originalPrice: orig,
+        discountedPrice: disc,
         quantity: qty,
-        pickup_start: pickupStartDate.toISOString(),
-        pickup_end: pickupEndDate.toISOString(),
-      })
-      .select()
-      .single();
+        pickupStart: pickupStartDate.toISOString(),
+        pickupEnd: pickupEndDate.toISOString(),
+      }),
+    });
 
+    const data = await res.json();
     setSubmitting(false);
 
-    if (error) {
-      alert('Error creating listing: ' + error.message);
-    } else if (data) {
-      setListings((prev) => [data, ...prev]);
+    if (!res.ok) {
+      alert('Error creating listing: ' + (data.error || 'Unknown error'));
+    } else if (data.listing) {
+      setListings((prev) => [data.listing, ...prev]);
       setTitle('');
       setOriginalPrice('');
       setDiscountedPrice('');
       setQuantity('1');
       setStartTime('');
       setEndTime('');
+      alert('Offer published and instant alerts dispatched!');
     }
   };
 
