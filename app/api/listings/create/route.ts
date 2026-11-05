@@ -46,11 +46,13 @@ export async function POST(req: Request) {
     const discountAmount = (originalPrice - discountedPrice).toFixed(2);
     const recipientEmails = customerProfiles?.map((p) => p.email).filter(Boolean) || ['michals7768@gmail.com'];    // 3. Send emails asynchronously via Resend
     // Note: In test mode, Resend allows sending to your own verified email. For production domain verification is required.
-  try {
+ // 3. Send emails asynchronously via Resend using BCC for privacy
+    try {
       console.log('Attempting to send email via Resend...');
       const emailResponse = await resend.emails.send({
         from: 'LetzSave <noreply@letzsave.lu>',
-        to: recipientEmails, // Or 'delivered@resend.dev'
+        to: ['noreply@letzsave.lu'], // Hidden system recipient
+        bcc: recipientEmails,        // All customer emails remain private
         subject: `🌱 New Surplus Deal: ${title} at ${restaurantName}!`,
         html: `
           <div style="font-family: sans-serif; color: #111; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 12px;">
