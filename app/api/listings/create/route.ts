@@ -37,18 +37,20 @@ export async function POST(req: Request) {
       .from('profiles')
       .select('email')
       .eq('role', 'customer'); // Assuming you store user roles ('customer' vs 'restaurant')
+      if (profileError) {
+      console.error('Error fetching customer profiles:', profileError.message);
+    }
     // For a school project, you can fetch user emails from Supabase Auth admin API or a subscriber list.
     // Here we fetch user profiles or target test emails.
     const restaurantName = listing.profiles?.business_name || 'A local partner';
     const discountAmount = (originalPrice - discountedPrice).toFixed(2);
-    const recipientEmails = customerProfiles?.map((p) => p.email).filter(Boolean) || ['michals7768@gmail.com'];
-    // 3. Send emails asynchronously via Resend
+    const recipientEmails = customerProfiles?.map((p) => p.email).filter(Boolean) || ['michals7768@gmail.com'];    // 3. Send emails asynchronously via Resend
     // Note: In test mode, Resend allows sending to your own verified email. For production domain verification is required.
   try {
       console.log('Attempting to send email via Resend...');
       const emailResponse = await resend.emails.send({
         from: 'LetzSave <onboarding@resend.dev>',
-        to: ['michals7768@gmail.com'], // Or 'delivered@resend.dev'
+        to: recipientEmails, // Or 'delivered@resend.dev'
         subject: `🌱 New Surplus Deal: ${title} at ${restaurantName}!`,
         html: `
           <div style="font-family: sans-serif; color: #111; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 12px;">
