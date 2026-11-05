@@ -45,12 +45,13 @@ export async function POST(req: Request) {
     // 3. Send emails asynchronously via Resend
     // Note: In test mode, Resend allows sending to your own verified email. For production domain verification is required.
   try {
-      await resend.emails.send({
+      console.log('Attempting to send email via Resend...');
+      const emailResponse = await resend.emails.send({
         from: 'LetzSave <onboarding@resend.dev>',
-        to: recipientEmails,
-        subject: `🌱 New Surplus Deal at ${restaurantName}!`,
+        to: ['michals7768@gmail.com'], // Or 'delivered@resend.dev'
+        subject: `🌱 New Surplus Deal: ${title} at ${restaurantName}!`,
         html: `
-         <div style="font-family: sans-serif; color: #111; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 12px;">
+          <div style="font-family: sans-serif; color: #111; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 12px;">
             <h2 style="color: #059669; margin-top: 0;">New Surplus Food Available!</h2>
             <p><strong>${restaurantName}</strong> just published a new surplus listing:</p>
             
@@ -65,9 +66,9 @@ export async function POST(req: Request) {
           </div>
         `,
       });
+      console.log('Resend API Response:', emailResponse);
     } catch (emailErr: any) {
-      console.error('Email dispatch error:', emailErr);
-      // Return the error so your browser alert shows why it failed!
+      console.error('RESEND CRITICAL ERROR:', emailErr);
       return NextResponse.json({ error: 'Listing created, but email failed: ' + emailErr.message }, { status: 500 });
     }
 
