@@ -32,22 +32,22 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: insertError.message }, { status: 500 });
     }
 
-    // 2. Fetch all customer emails to notify them
-    const { data: profiles, error: profileError } = await supabaseAdmin
+   // 2. Fetch all customer profile emails from Supabase
+    const { data: customerProfiles, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('id');
-
+      .select('email')
+      .eq('role', 'customer'); // Assuming you store user roles ('customer' vs 'restaurant')
     // For a school project, you can fetch user emails from Supabase Auth admin API or a subscriber list.
     // Here we fetch user profiles or target test emails.
     const restaurantName = listing.profiles?.business_name || 'A local partner';
     const discountAmount = (originalPrice - discountedPrice).toFixed(2);
-
+    const recipientEmails = customerProfiles?.map((p) => p.email).filter(Boolean) || ['michals7768@gmail.com'];
     // 3. Send emails asynchronously via Resend
     // Note: In test mode, Resend allows sending to your own verified email. For production domain verification is required.
   try {
       await resend.emails.send({
         from: 'LetzSave <onboarding@resend.dev>',
-        to: ['michals7768@gmail.com'],
+        to: recipientEmails,
         subject: `🌱 New Surplus Deal at ${restaurantName}!`,
         html: `
          <div style="font-family: sans-serif; color: #111; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 12px;">
