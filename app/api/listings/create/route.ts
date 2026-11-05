@@ -49,7 +49,7 @@ export async function POST(req: Request) {
   try {
       console.log('Attempting to send email via Resend...');
       const emailResponse = await resend.emails.send({
-        from: 'LetzSave <onboarding@resend.dev>',
+        from: 'LetzSave <noreply@letzsave.lu>',
         to: recipientEmails, // Or 'delivered@resend.dev'
         subject: `🌱 New Surplus Deal: ${title} at ${restaurantName}!`,
         html: `
