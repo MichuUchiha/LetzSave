@@ -26,6 +26,10 @@ export default function RestaurantDashboard() {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Stripe Onboarding State
+  const [isStripeConnected, setIsStripeConnected] = useState(false);
+  const [checkingStripe, setCheckingStripe] = useState(true);
+
   // Profile Edit State
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [businessName, setBusinessName] = useState('');
@@ -80,7 +84,25 @@ export default function RestaurantDashboard() {
       setAddress(profileData.address || '');
       setPhone(profileData.phone || '');
 
-      // 2. Fetch restaurant's listings
+      // 2. Fetch true Stripe status from backend API
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.access_token) {
+          const stripeRes = await fetch('/api/stripe/status', {
+            headers: {
+              'Authorization': `Bearer ${session.access_token}`,
+            },
+          });
+          const stripeData = await stripeRes.json();
+          setIsStripeConnected(Boolean(stripeData.connected));
+        }
+      } catch (err) {
+        console.error('Failed to check Stripe status:', err);
+      } finally {
+        setCheckingStripe(false);
+      }
+
+      // 3. Fetch restaurant's listings
       const { data: listingsData, error: listingsError } = await supabase
         .from('food_listings')
         .select('*')
@@ -94,7 +116,7 @@ export default function RestaurantDashboard() {
       const safeListings = listingsData || [];
       setListings(safeListings);
 
-      // 3. Fetch orders without fragile relational joins and map in JS
+      // 4. Fetch orders without fragile relational joins and map in JS
       if (safeListings.length > 0) {
         const listingIds = safeListings.map((l) => l.id);
         const listingsMap: { [key: string]: any } = {};
@@ -152,7 +174,7 @@ export default function RestaurantDashboard() {
     }
   };
 
- const handleCreateListing = async (e: React.FormEvent) => {
+  const handleCreateListing = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!userId) return;
 
@@ -190,12 +212,20 @@ export default function RestaurantDashboard() {
 
     setSubmitting(true);
 
-    // Call the server API route to create the listing and trigger email alerts
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      setSubmitting(false);
+      alert('Your session has expired. Please log in again.');
+      return;
+    }
+
     const res = await fetch('/api/listings/create', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
       body: JSON.stringify({
-        restaurantId: userId,
         title,
         originalPrice: orig,
         discountedPrice: disc,
@@ -259,10 +289,19 @@ export default function RestaurantDashboard() {
 
   const handleConnectStripe = async () => {
     if (!userId) return;
+
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      alert('Your session has expired. Please log in again.');
+      return;
+    }
+
     const res = await fetch('/api/stripe/connect', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId }),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
     });
     const data = await res.json();
     if (data.url) {
@@ -310,7 +349,9 @@ export default function RestaurantDashboard() {
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            {profile?.stripe_account_id ? (
+            {checkingStripe ? (
+              <span className="text-xs text-gray-400">Checking payout status...</span>
+            ) : isStripeConnected ? (
               <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1.5 rounded-xl text-xs font-semibold">
                 ✓ Payouts Connected
               </span>
@@ -407,7 +448,6 @@ export default function RestaurantDashboard() {
                 />
               </div>
 
-              {/* Added items-end to align inputs perfectly */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 mb-1">Original Price (€)</label>

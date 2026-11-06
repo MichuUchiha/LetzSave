@@ -1,45 +1,35 @@
 import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
 import { stripe } from '@/lib/stripe';
-import { supabase } from '@/lib/supabase';
 
-function getValidBaseUrl(req: Request): string {
-  const origin = req.headers.get('origin');
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
+
+function getTrustedBaseUrl(): string {
   let raw =
-    origin ||
     process.env.NEXT_PUBLIC_APP_URL ||
     process.env.NEXT_PUBLIC_SITE_URL ||
     'https://www.letzsave.lu';
 
-  // Strip accidental quotes and whitespace from env vars
-  raw = raw.trim().replace(/^["']|["']$/g, '');
-
-  // Prepend protocol if missing
+  raw = raw.trim().replace(/^["']|["']$/g, '').replace(/\/+$/, '');
   if (!raw.startsWith('http://') && !raw.startsWith('https://')) {
     raw = raw.includes('localhost') ? `http://${raw}` : `https://${raw}`;
   }
-
-  // Remove trailing slashes
-  raw = raw.replace(/\/+$/, '');
-
-  // Verify it is a valid URL; if not, hard-fallback to production URL
-  try {
-    new URL(raw);
-    return raw;
-  } catch {
-    return 'https://www.letzsave.lu';
-  }
+  return raw;
 }
 
 export async function POST(req: Request) {
   try {
     const { listingId, quantity, customerEmail } = await req.json();
 
-    const parsedQuantity = parseInt(quantity, 10);
-    if (isNaN(parsedQuantity) || parsedQuantity < 1) {
+    const parsedQuantity = Number(quantity);
+    if (!Number.isInteger(parsedQuantity) || parsedQuantity < 1) {
       return NextResponse.json({ error: 'Invalid quantity' }, { status: 400 });
     }
 
-    const { data: listing, error: listingError } = await supabase
+    const { data: listing, error: listingError } = await supabaseAdmin
       .from('food_listings')
       .select('title, discounted_price, restaurant_id, quantity, pickup_end')
       .eq('id', listingId)
@@ -60,7 +50,7 @@ export async function POST(req: Request) {
     let connectedAccountId = null;
 
     if (listing.restaurant_id) {
-      const { data: profile } = await supabase
+      const { data: profile } = await supabaseAdmin
         .from('profiles')
         .select('stripe_account_id')
         .eq('id', listing.restaurant_id)
@@ -69,7 +59,7 @@ export async function POST(req: Request) {
       connectedAccountId = profile?.stripe_account_id;
     }
 
-    const baseUrl = getValidBaseUrl(req);
+    const baseUrl = getTrustedBaseUrl();
     const successUrl = `${baseUrl}/order/success?session_id={CHECKOUT_SESSION_ID}`;
     const cancelUrl = `${baseUrl}/`;
 
@@ -116,6 +106,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ url: session.url });
   } catch (error: any) {
     console.error('Checkout error details:', error.message);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to create checkout session' }, { status: 500 });
   }
 }

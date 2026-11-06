@@ -28,11 +28,15 @@ export default function RegisterPage() {
     }
 
     // 1. Trigger welcome email if user was created
-    if (authData.user) {
+    // 1. Trigger welcome email if user was created and session token is present
+    if (authData.user && authData.session?.access_token) {
       try {
         const res = await fetch('/api/auth/welcome', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authData.session.access_token}`,
+          },
           body: JSON.stringify({ email }),
         });
         const resData = await res.json();
