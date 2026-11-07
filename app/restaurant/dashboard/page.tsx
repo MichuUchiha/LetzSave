@@ -102,7 +102,7 @@ export default function RestaurantDashboard() {
         setCheckingStripe(false);
       }
 
-      // 3. Fetch restaurant's listings
+      // 3. Strictly fetch listings belonging ONLY to this restaurant
       const { data: listingsData, error: listingsError } = await supabase
         .from('food_listings')
         .select('*')
@@ -116,7 +116,7 @@ export default function RestaurantDashboard() {
       const safeListings = listingsData || [];
       setListings(safeListings);
 
-      // 4. Fetch orders without fragile relational joins and map in JS
+      // 4. Strictly fetch orders belonging ONLY to this restaurant's listings
       if (safeListings.length > 0) {
         const listingIds = safeListings.map((l) => l.id);
         const listingsMap: { [key: string]: any } = {};
@@ -253,10 +253,40 @@ export default function RestaurantDashboard() {
   };
 
   const handleDeleteListing = async (id: string) => {
-    const { error } = await supabase.from('food_listings').delete().eq('id', id);
+    const hasOrders = orders.some((o) => o.listing_id === id);
+
+    // If an order exists for this listing, archive it so past history is preserved
+    if (hasOrders) {
+      const nowIso = new Date().toISOString();
+      const { error } = await supabase
+        .from('food_listings')
+        .update({ quantity: 0, pickup_end: nowIso })
+        .eq('id', id)
+        .eq('restaurant_id', userId);
+
+      if (error) {
+        alert('Could not archive listing: ' + error.message);
+      } else {
+        setListings((prev) =>
+          prev.map((item) =>
+            item.id === id ? { ...item, quantity: 0, pickup_end: nowIso } : item
+          )
+        );
+      }
+      return;
+    }
+
+    // If no customer ever reserved this listing, safe to delete permanently
+    const { error } = await supabase
+      .from('food_listings')
+      .delete()
+      .eq('id', id)
+      .eq('restaurant_id', userId);
+
     if (!error) {
       setListings((prev) => prev.filter((item) => item.id !== id));
-      setOrders((prev) => prev.filter((o) => o.listing_id !== id));
+    } else {
+      alert('Failed to delete listing: ' + error.message);
     }
   };
 
@@ -268,6 +298,20 @@ export default function RestaurantDashboard() {
     const matchingOrder = orders.find((o) => o.pickup_code === cleanCode);
     if (!matchingOrder) {
       alert('Invalid pickup code for this restaurant.');
+      return;
+    }
+
+    if (matchingOrder.status === 'completed') {
+      alert('This order has already been validated and completed.');
+      return;
+    }
+
+    const isPastPickup =
+      matchingOrder.food_listings?.pickup_end &&
+      new Date(matchingOrder.food_listings.pickup_end) <= new Date();
+
+    if (isPastPickup) {
+      alert('This order expired because its pickup window has closed.');
       return;
     }
 
@@ -314,6 +358,28 @@ export default function RestaurantDashboard() {
   if (loading) {
     return <div className="p-8 text-center text-gray-500">Loading restaurant dashboard...</div>;
   }
+
+  const now = new Date();
+
+  // 1. Listings currently active and awaiting pickup
+  const activeListings = listings.filter((item) => {
+    const isExpired = item.pickup_end && new Date(item.pickup_end) <= now;
+    return !isExpired && item.quantity > 0;
+  });
+
+  // 2. Orders currently active and awaiting pickup
+  const activeReservations = orders.filter((o) => {
+    const isCompleted = o.status === 'completed';
+    const isExpired = o.food_listings?.pickup_end && new Date(o.food_listings.pickup_end) <= now;
+    return !isCompleted && !isExpired;
+  });
+
+  // 3. Past order history (collected or expired)
+  const pastReservations = orders.filter((o) => {
+    const isCompleted = o.status === 'completed';
+    const isExpired = o.food_listings?.pickup_end && new Date(o.food_listings.pickup_end) <= now;
+    return isCompleted || isExpired;
+  });
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col justify-between text-gray-900">
@@ -563,15 +629,16 @@ export default function RestaurantDashboard() {
           </div>
         </div>
 
-        {/* Active Listings Section */}
+        {/* Window 1: Active Food Listings */}
         <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
-          <h2 className="text-lg font-bold text-gray-900 mb-4">Your Food Listings</h2>
-          {listings.length === 0 ? (
-            <p className="text-sm text-gray-500">You have not published any listings yet.</p>
+          <h2 className="text-lg font-bold text-gray-900 mb-4">
+            Your Active Food Listings ({activeListings.length})
+          </h2>
+          {activeListings.length === 0 ? (
+            <p className="text-sm text-gray-500">You have no active listings right now. Publish one above!</p>
           ) : (
             <div className="space-y-3">
-              {listings.map((item) => {
-                const isExpired = item.pickup_end && new Date(item.pickup_end) <= new Date();
+              {activeListings.map((item) => {
                 const windowStr = formatPickupWindow(item.pickup_start, item.pickup_end);
                 const discountPercent = item.original_price > 0
                   ? Math.round(((item.original_price - item.discounted_price) / item.original_price) * 100)
@@ -588,11 +655,6 @@ export default function RestaurantDashboard() {
                         <span className="bg-emerald-50 text-emerald-700 text-xs font-semibold px-2 py-0.5 rounded-full">
                           {discountPercent}% OFF
                         </span>
-                        {isExpired && (
-                          <span className="bg-red-50 text-red-600 text-xs font-semibold px-2 py-0.5 rounded-full">
-                            Expired
-                          </span>
-                        )}
                       </div>
                       {windowStr && (
                         <p className="text-xs text-amber-700 font-medium">🕒 {windowStr}</p>
@@ -615,39 +677,113 @@ export default function RestaurantDashboard() {
           )}
         </div>
 
-        {/* Customer Orders Section */}
+        {/* Window 2: Active Customer Reservations */}
         <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
-          <h2 className="text-lg font-bold text-gray-900 mb-4">Customer Reservations</h2>
-          {orders.length === 0 ? (
-            <p className="text-sm text-gray-500">No orders reserved yet.</p>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-bold text-gray-900">
+              Active Customer Reservations ({activeReservations.length})
+            </h2>
+            <span className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full font-semibold">
+              Awaiting Pickup
+            </span>
+          </div>
+          {activeReservations.length === 0 ? (
+            <p className="text-sm text-gray-500">No active reservations awaiting pickup right now.</p>
           ) : (
             <div className="space-y-3">
-              {orders.map((o) => {
+              {activeReservations.map((o) => {
                 const windowStr = formatPickupWindow(o.food_listings?.pickup_start, o.food_listings?.pickup_end);
                 return (
                   <div
                     key={o.id}
-                    className="border border-gray-200 rounded-xl p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4"
+                    className="border border-emerald-200 bg-emerald-50/20 rounded-xl p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4"
                   >
                     <div>
-                      <span
-                        className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
-                          o.status === 'completed'
-                            ? 'bg-gray-100 text-gray-600'
-                            : 'bg-emerald-50 text-emerald-700'
-                        }`}
-                      >
-                        {o.status}
+                      <span className="text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                        Pending Validation
                       </span>
-                      <p className="font-bold text-gray-900 mt-1">
+                      <p className="font-bold text-gray-900 mt-1.5">
                         {o.food_listings?.title || 'Order'} (x{o.quantity})
                       </p>
                       <p className="text-xs text-gray-500">Customer: {o.customer_email}</p>
-                      {windowStr && <p className="text-xs text-amber-700 mt-0.5">🕒 {windowStr}</p>}
+                      {windowStr && <p className="text-xs text-amber-700 font-medium mt-0.5">🕒 {windowStr}</p>}
                     </div>
-                    <div className="bg-gray-50 border border-gray-200 px-4 py-2 rounded-xl text-center">
-                      <p className="text-[10px] uppercase text-gray-500 font-semibold">Code</p>
-                      <p className="font-mono font-bold text-lg text-gray-900">{o.pickup_code}</p>
+                    <div className="bg-white border border-emerald-200 px-4 py-2 rounded-xl text-center shadow-sm">
+                      <p className="text-[10px] uppercase text-emerald-800 font-semibold">Expected Code</p>
+                      <p className="font-mono font-extrabold text-lg text-emerald-950 tracking-wider">{o.pickup_code}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Window 3: Past Reservations History */}
+        <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-lg font-bold text-gray-900">
+                Past Reservations History ({pastReservations.length})
+              </h2>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Record of all previous reservations for your restaurant and whether they were validated at pickup.
+              </p>
+            </div>
+          </div>
+
+          {pastReservations.length === 0 ? (
+            <p className="text-sm text-gray-500">No past reservations recorded for your restaurant yet.</p>
+          ) : (
+            <div className="space-y-3">
+              {pastReservations.map((o) => {
+                const isValidated = o.status === 'completed';
+                const windowStr = formatPickupWindow(o.food_listings?.pickup_start, o.food_listings?.pickup_end);
+                const payoutAmount = o.food_listings?.discounted_price
+                  ? (Number(o.food_listings.discounted_price) * Number(o.quantity) * 0.85).toFixed(2)
+                  : null;
+
+                return (
+                  <div
+                    key={o.id}
+                    className={`border rounded-xl p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 ${
+                      isValidated ? 'border-gray-200 bg-white' : 'border-red-200 bg-red-50/15'
+                    }`}
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {isValidated ? (
+                          <span className="text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            ✓ Validated & Collected
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200">
+                            ✕ Unvalidated (Missed Pickup)
+                          </span>
+                        )}
+                        {payoutAmount && (
+                          <span className="text-xs text-gray-500 font-medium">
+                            Partner Payout (85%): <strong className="text-gray-900">€{payoutAmount}</strong>
+                          </span>
+                        )}
+                      </div>
+
+                      <p className="font-bold text-gray-900 pt-0.5">
+                        {o.food_listings?.title || 'Order'} (x{o.quantity})
+                      </p>
+                      <p className="text-xs text-gray-500">Customer: {o.customer_email}</p>
+                      {windowStr && (
+                        <p className="text-xs text-gray-400">🕒 Window: {windowStr}</p>
+                      )}
+                    </div>
+
+                    <div className="bg-gray-50 border border-gray-200 px-4 py-2 rounded-xl text-center opacity-75">
+                      <p className="text-[10px] uppercase text-gray-500 font-semibold">
+                        {isValidated ? 'Validated Code' : 'Expired Code'}
+                      </p>
+                      <p className="font-mono font-bold text-lg text-gray-500 line-through">
+                        {o.pickup_code}
+                      </p>
                     </div>
                   </div>
                 );
@@ -656,12 +792,6 @@ export default function RestaurantDashboard() {
           )}
         </div>
       </main>
-
-      <footer className="bg-white border-t border-gray-200 py-6 text-xs text-gray-500">
-        <div className="max-w-6xl mx-auto px-6 text-center">
-          <p>© 2026 LetzSave Luxembourg. Rescuing food sustainably.</p>
-        </div>
-      </footer>
     </div>
   );
 }

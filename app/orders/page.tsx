@@ -16,13 +16,14 @@ function formatPickupWindow(startIso?: string, endIso?: string) {
   });
   const startTime = start.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   const endTime = end.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-  return `${dateStr} • From ${startTime} to ${endTime}`;
+  return `${dateStr} from ${startTime} to ${endTime}`;
 }
 
 export default function MyOrdersPage() {
   const [orders, setOrders] = useState<any[]>([]);
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'active' | 'history'>('active');
   const router = useRouter();
 
   useEffect(() => {
@@ -39,7 +40,6 @@ export default function MyOrdersPage() {
       const cleanEmail = (user.email || '').trim().toLowerCase();
       setCurrentUserEmail(cleanEmail);
 
-      // 1. Fetch orders
       const { data: rawOrders, error: ordersError } = await supabase
         .from('orders')
         .select('*')
@@ -59,11 +59,9 @@ export default function MyOrdersPage() {
       if (myOrders.length === 0) {
         setOrders([]);
         setLoading(false);
-        setupRealtimeSubscription(user.id, cleanEmail);
         return;
       }
 
-      // 2. Fetch associated listings & profiles
       const listingIds = Array.from(new Set(myOrders.map((o) => o.listing_id).filter(Boolean)));
       const { data: listingsData } = await supabase
         .from('food_listings')
@@ -97,18 +95,10 @@ export default function MyOrdersPage() {
       setOrders(enrichedOrders);
       setLoading(false);
 
-      // 3. Initialize real-time updates listener
-      setupRealtimeSubscription(user.id, cleanEmail, listingsMap, profilesMap);
-    }
-
-    function setupRealtimeSubscription(userId: string, userEmail: string, listingsMap: any = {}, profilesMap: any = {}) {
-      const channelName = `orders-channel-${userId}`;
-
-      // Clean up any previously cached channel instance to prevent React Strict Mode conflicts
+      // Realtime updates
+      const channelName = `orders-channel-${user.id}`;
       supabase.getChannels().forEach((c) => {
-        if (c.topic?.includes(userId)) {
-          supabase.removeChannel(c);
-        }
+        if (c.topic?.includes(user.id)) supabase.removeChannel(c);
       });
 
       channel = supabase
@@ -118,19 +108,12 @@ export default function MyOrdersPage() {
           { event: 'UPDATE', schema: 'public', table: 'orders' },
           (payload) => {
             const updatedOrder = payload.new;
-            if (updatedOrder.user_id === userId || (updatedOrder.customer_email && updatedOrder.customer_email.trim().toLowerCase() === userEmail)) {
-              setOrders((prevOrders) =>
-                prevOrders.map((ord) => {
-                  if (ord.id === updatedOrder.id) {
-                    return {
-                      ...ord,
-                      status: updatedOrder.status,
-                      listing: ord.listing || listingsMap[updatedOrder.listing_id] || null,
-                      profile: ord.profile || profilesMap[ord.listing?.restaurant_id] || null,
-                    };
-                  }
-                  return ord;
-                })
+            if (
+              updatedOrder.user_id === user.id ||
+              (updatedOrder.customer_email && updatedOrder.customer_email.trim().toLowerCase() === cleanEmail)
+            ) {
+              setOrders((prev) =>
+                prev.map((ord) => (ord.id === updatedOrder.id ? { ...ord, status: updatedOrder.status } : ord))
               );
             }
           }
@@ -141,11 +124,20 @@ export default function MyOrdersPage() {
     fetchUserOrders();
 
     return () => {
-      if (channel) {
-        supabase.removeChannel(channel);
-      }
+      if (channel) supabase.removeChannel(channel);
     };
   }, [router]);
+
+  // Compute active vs past orders based on status & pickup time
+  const now = new Date();
+  const activeOrders = orders.filter((o) => {
+    if (o.status === 'completed' || o.status === 'cancelled' || o.status === 'expired') return false;
+    if (o.listing?.pickup_end && new Date(o.listing.pickup_end) < now) return false;
+    return true;
+  });
+
+  const historyOrders = orders.filter((o) => !activeOrders.includes(o));
+  const displayedOrders = activeTab === 'active' ? activeOrders : historyOrders;
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col justify-between text-gray-900">
@@ -175,20 +167,51 @@ export default function MyOrdersPage() {
 
       <main className="max-w-4xl mx-auto px-6 py-10 flex-grow w-full">
         <h1 className="text-3xl font-bold tracking-tight text-gray-900 mb-2">My Reserved Orders</h1>
-        <p className="text-gray-500 mb-8">Present your pickup code at the restaurant counter to collect your meal.</p>
+        <p className="text-gray-500 mb-6">Manage your food pickups and view previous order history.</p>
+
+        {/* Tab Switcher */}
+        <div className="flex border-b border-gray-200 mb-8 space-x-6">
+          <button
+            onClick={() => setActiveTab('active')}
+            className={`pb-3 text-sm font-semibold border-b-2 transition ${
+              activeTab === 'active'
+                ? 'border-emerald-600 text-emerald-600'
+                : 'border-transparent text-gray-500 hover:text-gray-800'
+            }`}
+          >
+            Active Pickups ({activeOrders.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('history')}
+            className={`pb-3 text-sm font-semibold border-b-2 transition ${
+              activeTab === 'history'
+                ? 'border-emerald-600 text-emerald-600'
+                : 'border-transparent text-gray-500 hover:text-gray-800'
+            }`}
+          >
+            Past Orders ({historyOrders.length})
+          </button>
+        </div>
 
         {loading ? (
           <div className="text-center py-20 text-gray-400">Loading your orders...</div>
-        ) : orders.length === 0 ? (
+        ) : displayedOrders.length === 0 ? (
           <div className="bg-white border border-gray-200 rounded-2xl p-12 text-center shadow-sm">
-            <p className="text-gray-500 font-medium">You have no active orders yet.</p>
-            <a href="/" className="inline-block mt-4 bg-emerald-600 text-white px-5 py-2 rounded-xl text-sm font-medium hover:bg-emerald-700 transition">
-              Browse Surplus Food
-            </a>
+            <p className="text-gray-500 font-medium">
+              {activeTab === 'active' ? 'You have no active orders to collect.' : 'No past orders recorded.'}
+            </p>
+            {activeTab === 'active' && (
+              <a
+                href="/"
+                className="inline-block mt-4 bg-emerald-600 text-white px-5 py-2 rounded-xl text-sm font-medium hover:bg-emerald-700 transition"
+              >
+                Browse Surplus Food
+              </a>
+            )}
           </div>
         ) : (
           <div className="space-y-6">
-            {orders.map((order) => {
+            {displayedOrders.map((order) => {
               const listing = order.listing;
               const profile = order.profile;
               const address = profile?.address;
@@ -196,22 +219,49 @@ export default function MyOrdersPage() {
                 ? (listing.discounted_price * order.quantity).toFixed(2)
                 : null;
               const pickupWindow = formatPickupWindow(listing?.pickup_start, listing?.pickup_end);
+
+              const isPastPickup = listing?.pickup_end ? new Date(listing.pickup_end) < now : false;
               const isCompleted = order.status === 'completed';
+              const isExpired = !isCompleted && isPastPickup;
 
               return (
-                <div key={order.id} className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                <div
+                  key={order.id}
+                  className={`bg-white border rounded-2xl p-6 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6 ${
+                    isExpired ? 'border-red-200 bg-red-50/20' : 'border-gray-200'
+                  }`}
+                >
                   <div className="space-y-1">
-                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full uppercase tracking-wider ${
-                      isCompleted ? 'bg-gray-100 text-gray-600 border border-gray-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                    }`}>
-                      {order.status}
-                    </span>
-                    <h2 className="text-xl font-bold text-gray-900 pt-1">{listing?.title || 'Surplus Meal Package'}</h2>
-                    <p className="text-sm font-medium text-emerald-700">{profile?.business_name || 'Restaurant Partner'}</p>
+                    <div className="flex items-center gap-2">
+                      {isCompleted ? (
+                        <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200">
+                          ✓ Collected
+                        </span>
+                      ) : isExpired ? (
+                        <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200">
+                          Expired (Missed Pickup)
+                        </span>
+                      ) : (
+                        <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          Ready for Pickup
+                        </span>
+                      )}
+                    </div>
+
+                    <h2 className="text-xl font-bold text-gray-900 pt-1">
+                      {listing?.title || 'Surplus Meal Package'}
+                    </h2>
+                    <p className="text-sm font-medium text-emerald-700">
+                      {profile?.business_name || 'Restaurant Partner'}
+                    </p>
 
                     {pickupWindow && (
-                      <p className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-lg inline-block my-1">
-                        🕒 Collect: {pickupWindow}
+                      <p className={`text-xs font-semibold px-2.5 py-1 rounded-lg inline-block my-1 border ${
+                        isExpired
+                          ? 'bg-red-50 text-red-700 border-red-200'
+                          : 'bg-amber-50 text-amber-700 border-amber-200'
+                      }`}>
+                        🕒 {isExpired ? 'Expired Window:' : 'Collect:'} {pickupWindow}
                       </p>
                     )}
 
@@ -229,24 +279,31 @@ export default function MyOrdersPage() {
                       </div>
                     )}
 
-                    {profile?.phone && (
-                      <p className="text-xs text-gray-400">Phone: {profile.phone}</p>
-                    )}
-
                     <div className="pt-2 flex flex-wrap gap-4 text-xs text-gray-500">
                       <span>Quantity: <strong className="text-gray-800">{order.quantity}</strong></span>
-                      {totalPaid && <span>Total Paid: <strong className="text-emerald-600">€{totalPaid}</strong></span>}
-                      <span>Reserved on: {new Date(order.created_at).toLocaleDateString()}</span>
+                      {totalPaid && <span>Total: <strong className="text-emerald-600">€{totalPaid}</strong></span>}
+                      <span>Date: {new Date(order.created_at).toLocaleDateString('en-GB')}</span>
                     </div>
                   </div>
 
-                  <div className={`border px-6 py-4 rounded-xl text-center w-full md:w-auto ${
-                    isCompleted ? 'bg-gray-50 border-gray-200 opacity-60' : 'bg-emerald-50 border-emerald-200'
-                  }`}>
-                    <p className={`text-[10px] uppercase tracking-widest font-semibold ${isCompleted ? 'text-gray-500' : 'text-emerald-800'}`}>
-                      {isCompleted ? 'Order Collected' : 'Pickup Code'}
+                  {/* Pickup Code Box */}
+                  <div
+                    className={`border px-6 py-4 rounded-xl text-center w-full md:w-auto ${
+                      isCompleted
+                        ? 'bg-gray-50 border-gray-200 opacity-60'
+                        : isExpired
+                        ? 'bg-gray-100 border-gray-200 opacity-50'
+                        : 'bg-emerald-50 border-emerald-200'
+                    }`}
+                  >
+                    <p className={`text-[10px] uppercase tracking-widest font-semibold ${
+                      isCompleted || isExpired ? 'text-gray-500' : 'text-emerald-800'
+                    }`}>
+                      {isCompleted ? 'Order Collected' : isExpired ? 'Code Expired' : 'Pickup Code'}
                     </p>
-                    <p className={`text-2xl font-mono tracking-widest font-extrabold mt-0.5 ${isCompleted ? 'text-gray-700 line-through' : 'text-emerald-900'}`}>
+                    <p className={`text-2xl font-mono tracking-widest font-extrabold mt-0.5 ${
+                      isCompleted || isExpired ? 'text-gray-500 line-through' : 'text-emerald-900'
+                    }`}>
                       {order.pickup_code}
                     </p>
                   </div>
@@ -256,12 +313,6 @@ export default function MyOrdersPage() {
           </div>
         )}
       </main>
-
-      <footer className="bg-white border-t border-gray-200 py-6 text-xs text-gray-500">
-        <div className="max-w-6xl mx-auto px-6 text-center">
-          <p>© 2026 LetzSave Luxembourg. Rescuing food sustainably.</p>
-        </div>
-      </footer>
     </div>
   );
 }

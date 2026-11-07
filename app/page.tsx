@@ -250,11 +250,7 @@ export default function FeedPage() {
         )}
       </main>
 
-      <footer className="bg-white border-t border-gray-200 py-6 text-xs text-gray-500">
-        <div className="max-w-6xl mx-auto px-6 text-center">
-          <p>© 2026 LetzSave Luxembourg. Rescuing food sustainably.</p>
-        </div>
-      </footer>
+    
     </div>
   );
 }
