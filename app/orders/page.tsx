@@ -24,7 +24,13 @@ export default function MyOrdersPage() {
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'active' | 'history'>('active');
+  const [now, setNow] = useState<Date | null>(null);
   const router = useRouter();
+
+  // Initialize client-side timestamp safely on mount
+  useEffect(() => {
+    setNow(new Date());
+  }, []);
 
   useEffect(() => {
     let channel: any = null;
@@ -128,11 +134,10 @@ export default function MyOrdersPage() {
     };
   }, [router]);
 
-  // Compute active vs past orders based on status & pickup time
-  const now = new Date();
+  // Compute active vs past orders based on status & client-hydrated timestamp
   const activeOrders = orders.filter((o) => {
     if (o.status === 'completed' || o.status === 'cancelled' || o.status === 'expired') return false;
-    if (o.listing?.pickup_end && new Date(o.listing.pickup_end) < now) return false;
+    if (now && o.listing?.pickup_end && new Date(o.listing.pickup_end) < now) return false;
     return true;
   });
 
@@ -220,7 +225,7 @@ export default function MyOrdersPage() {
                 : null;
               const pickupWindow = formatPickupWindow(listing?.pickup_start, listing?.pickup_end);
 
-              const isPastPickup = listing?.pickup_end ? new Date(listing.pickup_end) < now : false;
+              const isPastPickup = Boolean(now && listing?.pickup_end && new Date(listing.pickup_end) < now);
               const isCompleted = order.status === 'completed';
               const isExpired = !isCompleted && isPastPickup;
 
